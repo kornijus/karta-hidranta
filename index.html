@@ -1,103 +1,187 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Karta hidranta</title>
+    <title>Karta Hidranta</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
     <style>
-        #map { 
-            width: 100%; 
-            height: 600px; 
+        #map {
+            width: 100%;
+            height: 600px;
         }
-        #controls { 
-            margin: 10px; 
-            text-align: center; 
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
         }
-        #controls button, #controls input { 
-            margin: 5px; 
-            padding: 8px; 
+        .control-panel {
+            margin: 10px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        }
+        .control-panel input, .control-panel select, .control-panel button {
+            margin: 5px 0;
         }
     </style>
 </head>
 <body>
-    <h1 style="text-align: center;">Karta hidranta</h1>
-    
-    <!-- Kontrole za upravljanje -->
-    <div id="controls">
-        <button id="addHydrant">Dodaj novi hidrant</button>
-        <input type="file" id="photoInput" accept="image/*" style="display: none;" />
+    <h1 style="text-align: center;">Karta Hidranta</h1>
+    <div class="control-panel">
+        <h3>Dodavanje hidranta</h3>
+        <label>Adresa: <input type="text" id="addressInput" /></label><br>
+        <label>Vrsta hidranta:
+            <select id="typeInput">
+                <option value="nadzemni">Nadzemni (plavi)</option>
+                <option value="podzemni">Podzemni (crveni)</option>
+            </select>
+        </label><br>
+        <label>Datum provjere: <input type="date" id="inspectionDateInput" /></label><br>
+        <label>Slika: <input type="file" id="imageInput" accept="image/*" /></label><br>
+        <button onclick="addHydrantManually()">Dodaj ručno</button>
+        <button onclick="addHydrantFromLocation()">Dodaj s trenutne lokacije</button>
+        <button onclick="generatePDFReport()">Generiraj izvještaj</button>
     </div>
-    
-    <!-- Div za mapu -->
     <div id="map"></div>
-    
-    <!-- Dodavanje Leaflet i JavaScript koda -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        var map = L.map('map').setView([46.223944, 16.352039], 14);
+        let map = L.map('map').setView([46.223944, 16.352039], 14);
 
-        // Dodavanje OpenStreetMap pločica
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19
         }).addTo(map);
 
-        // Podaci o hidrantima
-        var hydrants = [];
+        let hydrants = JSON.parse(localStorage.getItem('hydrants')) || [];
 
-        // Dodavanje hidranta na trenutnu GPS lokaciju
-        document.getElementById('addHydrant').onclick = function() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(function(position) {
-                    var lat = position.coords.latitude;
-                    var lng = position.coords.longitude;
+        const updateMap = () => {
+            map.eachLayer(layer => {
+                if (layer instanceof L.CircleMarker) {
+                    map.removeLayer(layer);
+                }
+            });
 
-                    // Prikaži unos fotografije
-                    var photoInput = document.getElementById('photoInput');
-                    photoInput.click();
+            hydrants.forEach(hydrant => {
+                const marker = L.circleMarker([hydrant.latitude, hydrant.longitude], {
+                    radius: 8,
+                    color: hydrant.type === "nadzemni" ? "blue" : "red",
+                    fillColor: hydrant.type === "nadzemni" ? "blue" : "red",
+                    fillOpacity: 0.8
+                }).addTo(map);
 
-                    photoInput.onchange = function(event) {
-                        var file = event.target.files[0];
-                        if (file) {
-                            var reader = new FileReader();
-
-                            reader.onload = function(e) {
-                                var imageUrl = e.target.result;
-
-                                // Dodaj marker na mapu
-                                var marker = L.circleMarker([lat, lng], {
-                                    radius: 8,
-                                    color: "green",
-                                    fillColor: "green",
-                                    fillOpacity: 0.8
-                                }).addTo(map);
-
-                                // Dodaj popup s fotografijom
-                                marker.bindPopup(`
-                                    <b>Novi hidrant</b><br>
-                                    Lokacija: ${lat.toFixed(6)}, ${lng.toFixed(6)}<br>
-                                    <img src="${imageUrl}" alt="Fotografija hidranta" style="width: 100px; height: auto;" />
-                                `);
-
-                                // Sačuvaj hidrant u podatke
-                                hydrants.push({
-                                    latitude: lat,
-                                    longitude: lng,
-                                    photo: imageUrl,
-                                    status: "ispravan" // Po defaultu
-                                });
-
-                                alert("Hidrant je uspešno dodan na mapu!");
-                            };
-
-                            reader.readAsDataURL(file); // Čitaj datoteku kao Base64
-                        }
-                    };
-                }, function(error) {
-                    alert("GPS lokacija nije dostupna. Proverite postavke uređaja.");
-                });
-            } else {
-                alert("Vaš uređaj ne podržava GPS funkcionalnost.");
-            }
+                marker.bindPopup(`
+                    <b>Adresa:</b> ${hydrant.address}<br>
+                    <b>Vrsta:</b> ${hydrant.type}<br>
+                    <b>Datum provjere:</b> ${hydrant.inspectionDate}<br>
+                    <b>Geolokacija:</b> ${hydrant.latitude.toFixed(6)}, ${hydrant.longitude.toFixed(6)}<br>
+                    <button onclick="editHydrant(${hydrant.id})">Uredi</button>
+                    <button onclick="deleteHydrant(${hydrant.id})">Izbriši</button>
+                `);
+            });
         };
+
+        const saveHydrants = () => {
+            localStorage.setItem('hydrants', JSON.stringify(hydrants));
+        };
+
+        const addHydrantManually = () => {
+            const address = document.getElementById('addressInput').value;
+            const type = document.getElementById('typeInput').value;
+            const imageFile = document.getElementById('imageInput').files[0];
+            const inspectionDate = document.getElementById('inspectionDateInput').value;
+
+            if (!address || !type || !inspectionDate) {
+                alert("Molimo ispunite sve podatke.");
+                return;
+            }
+
+            const id = hydrants.length ? hydrants[hydrants.length - 1].id + 1 : 1;
+
+            const newHydrant = {
+                id,
+                latitude: map.getCenter().lat,
+                longitude: map.getCenter().lng,
+                address,
+                type,
+                image: imageFile ? URL.createObjectURL(imageFile) : null,
+                inspectionDate,
+            };
+
+            hydrants.push(newHydrant);
+            saveHydrants();
+            updateMap();
+        };
+
+        const addHydrantFromLocation = () => {
+            if (!navigator.geolocation) {
+                alert("Geolokacija nije podržana na ovom uređaju.");
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(position => {
+                const id = hydrants.length ? hydrants[hydrants.length - 1].id + 1 : 1;
+                const type = document.getElementById('typeInput').value;
+                const inspectionDate = document.getElementById('inspectionDateInput').value;
+
+                if (!inspectionDate) {
+                    alert("Molimo unesite datum provjere.");
+                    return;
+                }
+
+                const newHydrant = {
+                    id,
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                    address: "Nepoznata adresa",
+                    type,
+                    image: null,
+                    inspectionDate,
+                };
+
+                hydrants.push(newHydrant);
+                saveHydrants();
+                updateMap();
+            }, () => {
+                alert("Nije moguće dobiti geolokaciju.");
+            });
+        };
+
+        const editHydrant = (id) => {
+            const hydrant = hydrants.find(h => h.id === id);
+            if (!hydrant) return;
+
+            const newAddress = prompt("Unesite novu adresu:", hydrant.address);
+            const newType = prompt("Unesite novu vrstu hidranta (nadzemni/podzemni):", hydrant.type);
+            const newDate = prompt("Unesite novi datum provjere (YYYY-MM-DD):", hydrant.inspectionDate);
+
+            hydrant.address = newAddress || hydrant.address;
+            hydrant.type = newType || hydrant.type;
+            hydrant.inspectionDate = newDate || hydrant.inspectionDate;
+
+            saveHydrants();
+            updateMap();
+        };
+
+        const deleteHydrant = (id) => {
+            hydrants = hydrants.filter(h => h.id !== id);
+            saveHydrants();
+            updateMap();
+        };
+
+        const generatePDFReport = () => {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            doc.text("Izvještaj o stanju hidrantske mreže", 10, 10);
+
+            hydrants.forEach((hydrant, index) => {
+                doc.text(`${index + 1}. Adresa: ${hydrant.address}, Vrsta: ${hydrant.type}, Datum provjere: ${hydrant.inspectionDate}, Lokacija: ${hydrant.latitude.toFixed(6)}, ${hydrant.longitude.toFixed(6)}`, 10, 20 + index * 10);
+            });
+
+            doc.save("Izvjestaj_hidranti.pdf");
+        };
+
+        updateMap();
     </script>
 </body>
 </html>
