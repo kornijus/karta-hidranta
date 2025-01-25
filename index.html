@@ -234,30 +234,40 @@
         };
 
         const showCurrentLocation = () => {
-            if (!navigator.geolocation) {
-                alert("Geolokacija nije podržana na ovom uređaju.");
-                return;
+    if (!navigator.geolocation) {
+        alert("Geolokacija nije podržana na ovom uređaju.");
+        return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+        position => {
+            const { latitude, longitude, accuracy } = position.coords;
+
+            console.log("Latitude:", latitude);
+            console.log("Longitude:", longitude);
+            console.log("Accuracy:", accuracy, "metara");
+
+            if (currentLocationMarker) {
+                map.removeLayer(currentLocationMarker);
             }
 
-            navigator.geolocation.getCurrentPosition(
-                position => {
-                    const { latitude, longitude } = position.coords;
+            currentLocationMarker = L.marker([latitude, longitude]).addTo(map)
+                .bindPopup(`Trenutna lokacija<br>Točnost: ${accuracy} metara`)
+                .openPopup();
 
-                    if (currentLocationMarker) {
-                        map.removeLayer(currentLocationMarker);
-                    }
-
-                    currentLocationMarker = L.marker([latitude, longitude]).addTo(map)
-                        .bindPopup("Trenutna lokacija")
-                        .openPopup();
-
-                    map.setView([latitude, longitude], 16);
-                },
-                () => {
-                    alert("Nije moguće dobiti trenutnu lokaciju.");
-                }
-            );
-        };
+            map.setView([latitude, longitude], 16);
+        },
+        error => {
+            console.error("Greška pri dobivanju lokacije:", error);
+            alert("Nije moguće dobiti trenutnu lokaciju. Provjerite dozvole za geolokaciju.");
+        },
+        {
+            enableHighAccuracy: true, // Povećava preciznost, ali može biti sporije
+            timeout: 10000, // Vrijeme čekanja na lokaciju (10 sekundi)
+            maximumAge: 0 // Uvijek koristi svježe podatke
+        }
+    );
+};
 
         window.onload = () => {
             showCurrentLocation();
